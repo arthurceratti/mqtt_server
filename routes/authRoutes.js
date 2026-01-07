@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
 const router = express.Router();
+const { query } = await import('../config/dbConfig.js');
 
 router.post('/register', async (req, res) => {
     const { email, password } = req.body;
