@@ -50,32 +50,32 @@ if (dotenvResult.error) {
 }
 
 INFLUX_URL = argv.url || process.env.INFLUX_URL || 'http://192.168.0.101:8886';
-TOKEN = argv.token || process.env.INFLUXDB_TOKEN;
-ORG = argv.org || process.env.INFLUXDB_ORG;
+TOKEN = argv.token || process.env.INFLUX_TOKEN || process.env.INFLUXDB_TOKEN;
+ORG = argv.org || process.env.INFLUX_ORG || process.env.INFLUXDB_ORG;
 BUCKET = argv.bucket || process.env.INFLUX_BUCKET;
 
 if (!TOKEN) {
-  console.error('Erro: token InfluxDB não fornecido. Use INFLUX_TOKEN ou --token.')
-  process.exit(1)
+  throw new Error('Erro: token InfluxDB não fornecido. Use INFLUX_TOKEN ou --token.');
 }
 if (!ORG) {
-  console.error('Erro: org InfluxDB não fornecida. Use INFLUX_ORG ou --org.')
-  process.exit(1)
+  throw new Error('Erro: org InfluxDB não fornecida. Use INFLUX_ORG ou --org.');
 }
 if (!BUCKET) {
-  console.error('Erro: bucket InfluxDB não fornecido. Use INFLUX_BUCKET ou --bucket.')
-  process.exit(1)
+  throw new Error('Erro: bucket InfluxDB não fornecido. Use INFLUX_BUCKET ou --bucket.');
 }
 
 client = new InfluxDB({ url: INFLUX_URL, token: TOKEN })
 queryApi = client.getQueryApi(ORG)
+console.log(`Query API: ${queryApi}`)
 
-// Flux query: pega tudo do bucket "ganso" na última hora
-fluxQuery = `from(bucket: "${BUCKET}") |> range(start: -1h)`
+
 }
 async function fetchLastHour() {
   try {
     authenticate();
+    // Flux query: pega tudo do bucket "ganso" na última hora
+    fluxQuery = `from(bucket: "${BUCKET}") |> range(start: -1h)`
+
     console.log(`Query API initialized for org ${ORG}`)
 
     console.log(`Conectando em ${INFLUX_URL} (org: ${ORG}), buscando dados do bucket '${BUCKET}' da última hora...`)
@@ -84,17 +84,18 @@ async function fetchLastHour() {
 
     if (!rows || rows.length === 0) {
       console.log('Nenhum dado encontrado no intervalo solicitado.')
-      return
+      return []
     }
 
-    console.log(`Encontrados ${rows.length} registros. Exibindo os primeiros 50:`)
-    const preview = rows.slice(0, 50)
+    console.log(`Encontrados ${rows.length} registros. Exibindo os primeiros 2:`)
+    const preview = rows.slice(0, 2)
     console.log(JSON.stringify(preview, null, 2))
 
     // Se quiser, pode salvar em arquivo ou processar / transformar os dados aqui.
+    return rows;
   } catch (err) {
     console.error('Erro ao consultar InfluxDB:', err.message || err)
-    process.exitCode = 2
+    throw err;
   }
 }
 
