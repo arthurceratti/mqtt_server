@@ -67,37 +67,76 @@ if (!BUCKET) {
 client = new InfluxDB({ url: INFLUX_URL, token: TOKEN })
 queryApi = client.getQueryApi(ORG)
 console.log(`Query API: ${queryApi}`)
-
-
 }
-async function fetchLastHour() {
+
+function filterReceivedData(data, filterKey) {
+  // filterKey may be a substring (eg 'temp' or 'humid' or '_temperatura')
+  const key = (filterKey || '').toString().replace(/^_+/, '').toLowerCase();
+  const filtered = (data || []).filter(item => {
+    const m = (item._measurement || item.measurement || '').toString().toLowerCase();
+    return key ? m.includes(key) : false;
+  }).map(r => [r._time || r.time, (r._value !== undefined ? r._value : r.value)]);
+  // debug
+  // console.log(`Filtered data (${filterKey}):`, filtered)
+  return filtered;
+}
+
+function formatRangeArg(v) {
+  // If v is a relative duration like '-1h', return as-is (no quotes).
+  if (!v) return undefined;
+  const s = String(v).trim();
+  if (/^-\d+[smhdw]$/i.test(s)) return s; // -1h, -30m
+  // If it parses as a date, use time(v: "...")
+  const parsed = Date.parse(s);
+  if (!isNaN(parsed)) return `time(v: "${s}")`;
+  // Otherwise return the string as-is (caller may construct correct literal)
+  return s;
+}
+
+async function fetchLastHour({ start, stop } = {}) {
   try {
     authenticate();
-    // Flux query: pega tudo do bucket "ganso" na última hora
-    fluxQuery = `from(bucket: "${BUCKET}") |> range(start: -1h)`
+    // Build range() args using helper to support relative durations or ISO timestamps
+    const startArg = formatRangeArg(start) || '-1h';
+    const stopArg = formatRangeArg(stop);
+    // Flux query: pega tudo do bucket na faixa desejada
+    fluxQuery = `from(bucket: "${BUCKET}") |> range(start: ${startArg}${stopArg ? `, stop: ${stopArg}` : ''})`
 
     console.log(`Query API initialized for org ${ORG}`)
 
-    console.log(`Conectando em ${INFLUX_URL} (org: ${ORG}), buscando dados do bucket '${BUCKET}' da última hora...`)
+    console.log(`Conectando em ${INFLUX_URL} (org: ${ORG}), buscando dados do bucket '${BUCKET}' com range start=${start} stop=${stop}...`)
 
     const rows = await queryApi.collectRows(fluxQuery)
 
     if (!rows || rows.length === 0) {
       console.log('Nenhum dado encontrado no intervalo solicitado.')
-      return []
+      return { rows: [], arrayOfTemperature: [['time', 'temperature']], arrayOfHumidity: [['time', 'humidity']], fluxQuery }
     }
 
-    console.log(`Encontrados ${rows.length} registros. Exibindo os primeiros 2:`)
+    //console.log(`Encontrados ${rows.length} registros. Exibindo os primeiros 2:`)
     const preview = rows.slice(0, 2)
-    console.log(JSON.stringify(preview, null, 2))
+    //console.log(JSON.stringify(preview, null, 2))
 
+    // populate arrays by splitting rows by _measurement (supports english and portuguese keys)
+    const arrayOfTemperature = filterReceivedData(rows, 'temp')
+    const arrayOfHumidity = [...filterReceivedData(rows, 'humid'), ...filterReceivedData(rows, 'umid')]
+
+    // add header rows indicating column names
+    arrayOfTemperature.unshift(['time', 'temperature'])
+    arrayOfHumidity.unshift(['time', 'humidity'])
+
+    console.log(`Temperatura: ${arrayOfTemperature.length} pontos, Umidade: ${arrayOfHumidity.length} pontos.`)
+    console.log(`Temperatura exemplos:`, arrayOfTemperature.slice(0,5))
+    console.log(`Umidade exemplos:`, arrayOfHumidity.slice(0,5))
     // Se quiser, pode salvar em arquivo ou processar / transformar os dados aqui.
-    return rows;
+    return { rows, arrayOfTemperature, arrayOfHumidity, fluxQuery };
   } catch (err) {
     console.error('Erro ao consultar InfluxDB:', err.message || err)
     throw err;
   }
 }
+
+
 
 //fetchLastHour()
 

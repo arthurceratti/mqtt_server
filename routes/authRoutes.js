@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Influx from '../resolvers/influxdb.js'; 
-import openai from '../resolvers/aiConnector.js';
+import ollama from '../resolvers/aiConnector.js';
 
 
 
@@ -66,19 +66,37 @@ router.post('/logout', (req, res) => {
     res.send('Logged out successfully');
 });
 
-router.post('/show-data', async (req, res) => {
-    const data = await Influx.fetchLastHour();
-    console.log(data);
-    res.json(data);
+router.get('/show-data', async (req, res) => {
+    console.log("request:"+ req.body, req.query);
+    try {
+        // Accept range parameters either in body or query string
+        const start = req.body?.start || req.query?.start || '-1h';
+        const stop = req.body?.stop || req.query?.stop || undefined;
+        const result = await Influx.fetchLastHour({ start, stop });
+        const arrayOfTemperature = result?.arrayOfTemperature || [];
+        const arrayOfHumidity = result?.arrayOfHumidity || [];
+        console.log(`Returning Influx arrays — temp: ${arrayOfTemperature.length}, humid: ${arrayOfHumidity.length} (range start=${start} stop=${stop})`);
+        res.json({ arrayOfTemperature, arrayOfHumidity, fluxQuery: result?.fluxQuery });
+    } catch (err) {
+        console.error('Erro ao obter dados InfluxDB:', err.message || err);
+        res.status(500).send('Erro ao consultar InfluxDB');
+    }
 });
 
-router.get('/ai-prompt', async (req, res) => {
-    const prompt = req.query.prompt || 'What is the capital of france?';
+router.post('/ai-prompt', async (req, res) => {
+
+    const prompt = await req.prompt || req.body.prompt;
     if (!prompt) return res.status(400).send('Prompt is required.');
 
     try {
-        const response = await openai.promptLocalAI(prompt);
-        res.json({ response });
+        const response = await ollama.promptLocalAI(prompt).then((response) => {
+            console.log("AI response:", response);
+            res.json({ response });
+           // res = response;
+            console.log(res);
+            return res;
+        })
+      
     } catch (error) {
         console.error(error);
         res.status(500).send('Something went wrong.');
